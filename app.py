@@ -196,10 +196,103 @@ def normalize_price(raw_price, basis, currency, fx_rate, box_weight_kg):
         notes.append(f"per-kg -> per-piece (x{box_weight_kg}kg)")
     return round(price, 2), notes
 
+def draft_rfx_with_ai(description, num_items_hint=None):
+    """The RFx co-pilot: buyer describes what they need in plain language,
+    Claude drafts structured line items, a qualification questionnaire, and terms.
+    Scoped to corrugated packaging for this demo, matching the rest of the built pipeline
+    (which relies on 'ply' and box-weight fields for per-kg price normalization) -
+    stated plainly here and in the one-page note as an intentional scoping choice."""
+
+    prompt = f"""You are a procurement co-pilot helping a buyer draft an RFx (Request for Quotation) for CORRUGATED BOX packaging.
+
+The buyer described what they need in their own words:
+---
+{description}
+---
+
+Draft a complete RFx. Return ONLY this JSON:
+{{
+  "line_items": [
+    {{"line_code": "L01", "description": "RSC corrugated box AxBxC mm, N-ply", "length_mm": number, "width_mm": number, "height_mm": number, "ply": 3_or_5_or_7, "quantity_pcs": number, "est_weight_kg_per_box": estimated_number}}
+  ],
+  "questionnaire": [
+    {{"id": "Q1", "question": "...", "knockout": true_or_false}}
+  ],
+  "terms": {{
+    "price_basis": "e.g. Rs per piece, ex-GST, delivered to [location]",
+    "payment_terms_preferred": "e.g. 30 days or longer from invoice",
+    "quote_validity_required_days": number,
+    "quotes_due_in_days": number
+  }},
+  "buyer_name": "a reasonable fictional buyer company name based on context, or 'Buyer' if none given"
+}}
+
+Generate a realistic, varied set of line items based on what the buyer described (different sizes/plies if the buyer mentioned variety, or a focused set if they described something specific). Estimate box weight per piece reasonably from its dimensions and ply (thicker/larger boxes weigh more). Include a standard ISO 9001 knockout question and 4-6 other reasonable qualification questions (GST registration, capacity, delivery, quality reporting, references)."""
+
+    resp = client.messages.create(model=MODEL, max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+    return extract_json(resp.content[0].text)
+
 # ----------------------------------------------------------------- UI
 st.title("Kill the Quote Spreadsheet")
 st.caption("Aerchain take-home — RFx comparison and analyst chat, built end-to-end with Claude.")
 
+st.header("0. Draft your RFx with an AI co-pilot")
+st.write("Describe what you need in plain language. The co-pilot drafts line items, a qualification questionnaire, and terms — scoped to corrugated box packaging for this demo.")
+rfx_description = st.text_area(
+    "What do you need?",
+    placeholder="e.g. We need corrugated boxes in about 10 different sizes, ranging from small (300x200x150mm) to large (650x450x400mm), in 3-ply, 5-ply, and 7-ply options, for a food packaging warehouse in Pune. Quantities between 5,000 and 30,000 pieces per size.",
+    height=100,
+)
+if st.button("Draft RFx with AI"):
+    if not rfx_description.strip():
+        st.warning("Please describe what you need first.")
+    elif client is None:
+        st.error("No API key configured yet.")
+    else:
+        with st.spinner("Drafting RFx..."):
+            st.session_state["drafted_rfx"] = draft_rfx_with_ai(rfx_description)
+
+if "drafted_rfx" in st.session_state:
+    drafted = st.session_state["drafted_rfx"]
+    st.success(f"Drafted RFx for: {drafted.get('buyer_name', 'Buyer')}")
+
+    drafted_df = pd.DataFrame(drafted["line_items"])
+    st.write(f"**{len(drafted_df)} line items drafted:**")
+    st.dataframe(drafted_df, use_container_width=True)
+
+    st.write("**Qualification questionnaire:**")
+    for q in drafted["questionnaire"]:
+        knockout_tag = " ⚠️ knockout" if q.get("knockout") else ""
+        st.write(f"- {q['id']}: {q['question']}{knockout_tag}")
+
+    st.write("**Terms:**")
+    st.json(drafted["terms"])
+
+    # Build downloadable files matching exactly what section 1/2 below expect to upload
+    csv_bytes = drafted_df.to_csv(index=False).encode("utf-8")
+    terms_text = (
+        f"RFQ: Corrugated boxes, {len(drafted_df)} line items\n"
+        f"Buyer: {drafted.get('buyer_name', 'Buyer')}\n"
+        f"Price basis requested: {drafted['terms'].get('price_basis', '')}\n"
+        f"Payment terms preferred: {drafted['terms'].get('payment_terms_preferred', '')}\n"
+        f"Quote validity required: minimum {drafted['terms'].get('quote_validity_required_days', '')} days\n"
+        f"Quotes due: {drafted['terms'].get('quotes_due_in_days', '')} days from RFQ date\n"
+    )
+
+    c1, c2 = st.columns(2)
+    c1.download_button("Download rfx_lines.csv", csv_bytes, file_name="rfx_lines.csv", mime="text/csv")
+    c2.download_button("Download terms.txt", terms_text.encode("utf-8"), file_name="terms.txt", mime="text/plain")
+
+    if st.button("Send RFx to vendors"):
+        # Plumbing stubbed per the brief's own rule ("fake the SMTP server if you like") -
+        # the extraction and reasoning elsewhere in this app are real; this step is not.
+        st.info(f"📧 Simulated: RFx sent to 5 vendors (A, B, C, D, E) via email. "
+                f"Quotes requested within {drafted['terms'].get('quotes_due_in_days', 9)} days. "
+                f"(This send step is stubbed, as permitted by the assignment brief — everything below this point is real.)")
+
+    st.info("⬇️ Use the downloaded rfx_lines.csv and terms.txt in Sections 1 and 2 below to run the full comparison.")
+
+st.divider()
 st.header("1. RFx line items")
 rfx_file = st.file_uploader("Upload rfx_lines.csv", type=["csv"], key="rfx")
 

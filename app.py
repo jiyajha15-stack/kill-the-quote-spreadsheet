@@ -234,10 +234,10 @@ Generate a realistic, varied set of line items based on what the buyer described
 
 # ----------------------------------------------------------------- UI
 st.title("Kill the Quote Spreadsheet")
-st.caption("Aerchain take-home — RFx comparison and analyst chat, built end-to-end with Claude.")
+st.caption("Aerchain — comparison and analyst chat")
 
 st.header("0. Draft your RFx with an AI co-pilot")
-st.write("Describe what you need in plain language. The co-pilot drafts line items, a qualification questionnaire, and terms — scoped to corrugated box packaging for this demo.")
+st.write("Describe what you need in plain language. The co-pilot drafts line items, a qualification questionnaire, and terms — scoped to corrugated box packaging.")
 rfx_description = st.text_area(
     "What do you need?",
     placeholder="e.g. We need corrugated boxes in about 10 different sizes, ranging from small (300x200x150mm) to large (650x450x400mm), in 3-ply, 5-ply, and 7-ply options, for a food packaging warehouse in Pune. Quantities between 5,000 and 30,000 pieces per size.",

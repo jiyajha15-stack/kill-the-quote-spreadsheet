@@ -130,11 +130,12 @@ Vendor's line items:
 
 Vendor's pricing basis: {vendor_data['pricing_basis']}
 
-If a single vendor line item is a CATEGORY-LEVEL price (e.g. "all 5-ply boxes") rather than one specific line, set matched_line_code to "CATEGORY" and specify category_ply (3, 5, or 7).
+If a single vendor line item is a CATEGORY-LEVEL price (e.g. "all 5-ply boxes") rather than one specific line, set matched_line_code to "CATEGORY" and list the EXACT line_codes this price applies to in category_line_codes.
+Look carefully for any size limit in the vendor's wording (e.g. "up to 500mm", "medium sizes only", "small and medium boxes", a specific list of dimensions). If a limit is stated, only include the line_codes that actually fall within it - do not include a line just because it shares the same ply, if the vendor's own wording would exclude it by size. If no limit is stated, include every line_code with that ply.
 If a vendor line is an alternate/substitute (different ply than requested), still match it to the closest line_code and mark is_alternate true.
 
 Return ONLY this JSON:
-{{"matches": [{{"vendor_description": "...", "matched_line_code": "L01 or CATEGORY", "category_ply": null_or_3_or_5_or_7, "is_alternate": true_or_false, "match_confidence": 0.0-1.0}}]}}"""
+{{"matches": [{{"vendor_description": "...", "matched_line_code": "L01 or CATEGORY", "category_line_codes": null_or_list_of_line_codes, "is_alternate": true_or_false, "match_confidence": 0.0-1.0}}]}}"""
     resp = client.messages.create(model=MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}])
     return extract_json(resp.content[0].text)["matches"]
 
@@ -354,12 +355,11 @@ if st.button("Run analysis", type="primary"):
             desc_to_price = {it["description"]: it["raw_price"] for it in vd["line_items"]}
             lookup = {}
             for m in matches:
-                if m["matched_line_code"] == "CATEGORY" and m.get("category_ply"):
-                    ply_lines = rfx_lines[rfx_lines["ply"] == m["category_ply"]]
+                if m["matched_line_code"] == "CATEGORY" and m.get("category_line_codes"):
                     price = desc_to_price.get(m["vendor_description"])
                     if price is not None:
-                        for _, r in ply_lines.iterrows():
-                            lookup[r["line_code"]] = {"raw_price": price, "is_alternate": False, "conf": m.get("match_confidence", 0.7)}
+                        for lc in m["category_line_codes"]:
+                            lookup[lc] = {"raw_price": price, "is_alternate": False, "conf": m.get("match_confidence", 0.7)}
                 elif m["matched_line_code"] not in (None, "CATEGORY"):
                     price = desc_to_price.get(m["vendor_description"])
                     if price is not None:
